@@ -1,0 +1,12 @@
+[package]
+name = "smtp-filter"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aho-corasick = "1.0.1"
+log = { version = "0.4.17", features = ["release_max_level_off"] }
+mailparse = "0.14.0"
+memchr = "2.5.0"
