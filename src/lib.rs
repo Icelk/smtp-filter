@@ -3,6 +3,8 @@ use std::io::{stdin, Read};
 
 use mailparse::MailAddrList;
 
+/// A representation of a mail. In this case, it's left unparsed. If you make few changes, it's
+/// slow to parse and then serialize it, so this provides a speedy alternative.
 pub struct UnparsedMail {
     contents: Vec<u8>,
 
@@ -54,6 +56,8 @@ impl UnparsedMail {
             user_agent: None,
         }
     }
+    /// Read from stdin and CLI arguments. Useful when using postfix.
+    ///
     /// Returns `None` is `stdin` isn't connected.
     pub fn from_stdin() -> Option<Self> {
         let mut stdin = stdin();
@@ -256,6 +260,12 @@ impl BasicMail for UnparsedMail {
     }
 }
 
+/// Action after filter.
+/// Also accepts:
+/// - bool: true => Continue, false => Ignore
+/// - Option<()>: Some(()) => Continue, None => Ignore (useful when you have an option in the
+///   filter and want to use `?` on it)
+/// - Result<(), [`Error`]>: Ok(()) => Continue, Err(err) => Reject(err)
 pub enum Action {
     Continue,
     Ignore,
@@ -289,6 +299,7 @@ impl From<Result<(), Error>> for Action {
 }
 type FilterFn<M> = Box<dyn Fn(&mut M) -> Action>;
 
+/// Mail filter
 pub struct Filter<M: BasicMail> {
     filters: Vec<FilterFn<M>>,
 }
@@ -299,13 +310,19 @@ impl<M: BasicMail> Filter<M> {
         }
     }
 
+    /// Filter the mail
+    ///
+    /// The return type means you can use this in all the same places as [`Self::and_then`] &
+    /// [`Self::map`], but the code's intentions can become more clear when using those functions.
     pub fn filter<V: Into<Action>>(&mut self, filter: impl Fn(&mut M) -> V + 'static) -> &mut Self {
         self.filters.push(Box::new(move |mail| filter(mail).into()));
         self
     }
+    /// Either continue or reject mail
     pub fn and_then(&mut self, f: impl Fn(&mut M) -> Result<(), Error> + 'static) -> &mut Self {
         self.filter(f)
     }
+    /// Change mail contents
     pub fn map(&mut self, f: impl Fn(&mut M) + 'static) -> &mut Self {
         self.filter(move |mail| {
             f(mail);
@@ -313,6 +330,8 @@ impl<M: BasicMail> Filter<M> {
         })
     }
 
+    /// Filter a mail and return the result.
+    /// If `Err`, reject the mail.
     pub fn process(&self, mut mail: M) -> Result<(Vec<u8>, MailAddrList, MailAddrList), String> {
         let mut e = None;
         for (idx, filter) in self.filters.iter().enumerate() {
@@ -349,11 +368,15 @@ impl<M: BasicMail> Default for Filter<M> {
     }
 }
 
+/// SMTP error message
 pub struct Error {
+    /// Status: <https://en.wikipedia.org/wiki/List_of_SMTP_server_return_codes>
     pub status: u16,
+    /// The message after the status. Can be anything you like, really
     pub message: String,
 }
 impl Error {
+    /// Standard unauthorized message: `530: 5.7.0 Authentication required`
     pub fn unauthorized() -> Self {
         Self {
             status: 530,
@@ -367,6 +390,7 @@ impl Display for Error {
     }
 }
 
+/// How to show the other recipients to the [new recipients](BasicMail::set_recipient).
 pub enum RecipientDisclosure {
     /// Disclose all recipients when overriding them.
     /// Changes the header to match with the new recipients.
@@ -392,7 +416,9 @@ pub trait BasicMail {
     /// Into body + from + to
     fn into_parts(self) -> (Vec<u8>, MailAddrList, MailAddrList);
 
+    /// Get the domain of the first recipient, according to the headers
     fn header_domain(&mut self) -> Option<&str>;
+    /// Get the domain of the first recipient, according to the mail server's recipients
     fn domain(&mut self) -> Option<&str>;
     fn header_recipients(&mut self) -> &mailparse::MailAddrList;
     fn header_sender(&mut self) -> &mailparse::MailAddrList;
@@ -415,20 +441,29 @@ pub trait BasicMail {
         disclosure: RecipientDisclosure,
     );
 }
+/// Functions only allowed on parsed mails.
+///
+/// Some operations are difficult to do on unparsed mails, so this exports some more advanced
+/// features.
 pub trait StructuredMail: BasicMail {}
 
+/// Helper functions for working with types from [`mailparse`].
 pub mod utils {
     use mailparse::{MailAddr, MailAddrList, SingleInfo};
 
+    /// Iterate over all the addresses of a [`MailAddrList`], returned from many functions of
+    /// [`crate::BasicMail`].
     pub fn iter_addrs(addrs: &MailAddrList) -> impl Iterator<Item = &SingleInfo> {
         addrs.iter().flat_map(|addr| match addr {
             MailAddr::Single(s) => std::slice::from_ref(s).iter(),
             MailAddr::Group(group) => group.addrs.iter(),
         })
     }
+    /// Create a [`MailAddrList`] from an iterator of addresses.
     pub fn addr_list_from_iter(iter: impl Iterator<Item = SingleInfo>) -> MailAddrList {
         MailAddrList::from(iter.map(MailAddr::Single).collect::<Vec<_>>())
     }
+    /// Create a [`MailAddrList`] from a single address.
     pub fn addr_single(addr: impl Into<String>) -> MailAddrList {
         addr_list_from_iter(
             [SingleInfo {

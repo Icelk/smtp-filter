@@ -108,6 +108,5 @@ fn main() {
 ## TODO
 
 -   `set_header` with new headers in `UnparsedMail`
--   Docs
 -   `ParsedMail`
 -   Bin feature which handles logging & spawn sendmail
