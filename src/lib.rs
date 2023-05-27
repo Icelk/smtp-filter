@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::fmt::{self, Display};
 use std::io::{stdin, Read};
 
